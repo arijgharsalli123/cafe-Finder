@@ -12,9 +12,14 @@ function App() {
   // User location
   const [location, setLocation] = useState(null);
 
-  // Location status:
-  // idle | loading | success | error | unsupported
+  // List of nearby cafés
+  const [cafes, setCafes] = useState([]);
+
+  // Location status: idle | loading | success | error | unsupported
   const [locationStatus, setLocationStatus] = useState("idle");
+
+  // Search input state for manual entry
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Toggle a preference on/off
   const togglePreference = (preference) => {
@@ -37,21 +42,14 @@ function App() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-
-        // Show coordinates in browser console
         console.log("User location:", latitude, longitude);
 
-        // Save coordinates in React state
-        setLocation({
-          latitude,
-          longitude,
-        });
-
+        const newLocation = { latitude, longitude };
+        setLocation(newLocation);
         setLocationStatus("success");
       },
       (error) => {
         console.error("Geolocation error:", error);
-
         setLocationStatus("error");
       },
       {
@@ -61,29 +59,44 @@ function App() {
       }
     );
   };
+
   // Find nearby cafés using Overpass API
   async function findNearbyCafes() {
     if (!location) {
-      console.log("Location is not available");
+      alert("Please get your location first using 'Find cafés near me'.");
+      getUserLocation();
       return;
     }
-    const { latitude, longitude } = location;
-    const query = `
-      [out:json];
-      node["amenity"="cafe"](around:3000,${latitude},${longitude});
-      out;
-    `;
-    const response = await fetch(
-      `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`
-    );
-    const data = await response.json();
-    console.log("Nearby cafés:", data.elements);
+
+    try {
+      const { latitude, longitude } = location;
+      const query = `
+        [out:json];
+        node["amenity"="cafe"](around:3000,${latitude},${longitude});
+        out;
+      `;
+      const response = await fetch(
+        `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`
+      );
+      const data = await response.json();
+      setCafes(data.elements || []);
+      console.log("Nearby cafés:", data.elements);
+    } catch (err) {
+      console.error("Failed to fetch cafés:", err);
+      alert("Could not fetch nearby cafés. Please try again.");
+    }
   }
+
+  // Handle manual search form submission
+  const handleManualSearch = (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    alert(`Searching for location: ${searchQuery}`);
+  };
 
   return (
     <main className="app">
       {/* ================= NAVBAR ================= */}
-
       <nav className="navbar">
         <div className="logo">
           Café<span>Finder</span> ☕
@@ -94,11 +107,10 @@ function App() {
           <a href="#how-it-works">How it works</a>
         </div>
 
-        <button className="nav-button">Get Started</button>
+        <button className="nav-button" onClick={getUserLocation}>Get Started</button>
       </nav>
 
       {/* ================= HERO ================= */}
-
       <section className="hero">
         <div className="hero-content">
           <motion.div
@@ -136,7 +148,6 @@ function App() {
             transition={{ duration: 0.6, delay: 0.3 }}
           >
             {/* FIND NEAR ME */}
-
             <button
               className="primary-button"
               onClick={getUserLocation}
@@ -146,12 +157,12 @@ function App() {
                 ? "📍 Finding you..."
                 : "📍 Find cafés near me"}
             </button>
-            <button onClick={findNearbyCafes}>
-             Test Nearby Cafés
-           </button>
 
-            {/* SEARCH LOCATION */}
+            <button className="secondary-button" onClick={findNearbyCafes}>
+               Test Nearby Cafés
+            </button>
 
+            {/* SEARCH LOCATION BUTTON */}
             <button
               className="secondary-button"
               onClick={() => {
@@ -167,7 +178,6 @@ function App() {
           </motion.div>
 
           {/* ================= LOCATION STATUS ================= */}
-
           {locationStatus === "success" && location && (
             <motion.div
               className="location-success"
@@ -175,9 +185,7 @@ function App() {
               animate={{ opacity: 1, y: 0 }}
             >
               📍 Location detected successfully
-
               <br />
-
               <small>
                 Latitude: {location.latitude}
                 <br />
@@ -211,7 +219,6 @@ function App() {
         </div>
 
         {/* ================= COFFEE VISUAL ================= */}
-
         <div className="hero-visual">
           <motion.div
             className="glow"
@@ -239,17 +246,14 @@ function App() {
             }}
           >
             <div className="coffee-shadow" />
-
             <div className="cup">
               <div className="coffee" />
               <div className="cup-handle" />
             </div>
-
             <div className="saucer" />
           </motion.div>
 
           {/* RATING CARD */}
-
           <motion.div
             className="floating-card card-rating"
             animate={{ y: [0, -8, 0] }}
@@ -264,7 +268,6 @@ function App() {
           </motion.div>
 
           {/* LOCATION CARD */}
-
           <motion.div
             className="floating-card card-location"
             animate={{ y: [0, 8, 0] }}
@@ -280,23 +283,60 @@ function App() {
         </div>
       </section>
 
+      {/* ================= CAFÉ RESULTS SECTION (Fixed Position) ================= */}
+      {cafes.length > 0 && (
+        <section className="cafe-results">
+          <div className="results-header">
+            <div>
+              <span className="results-eyebrow">YOUR CAFÉ DISCOVERY</span>
+              <h2>Cafés near you</h2>
+              <p>
+                We found {cafes.length}{" "}
+                {cafes.length === 1 ? "place" : "places"} around you.
+              </p>
+            </div>
+          </div>
+
+          <div className="cafes-list">
+            {cafes.map((cafe) => (
+              <article className="cafe-card" key={cafe.id}>
+                <div className="cafe-card-top">
+                  <span className="cafe-category">CAFÉ</span>
+                  <span className="cafe-icon">☕</span>
+                </div>
+
+                <div className="cafe-card-content">
+                  <h3>{cafe.tags?.name || "Unnamed Café"}</h3>
+                  <p className="cafe-location">
+                    📍 {cafe.lat?.toFixed(4)}, {cafe.lon?.toFixed(4)}
+                  </p>
+                </div>
+
+                <button className="cafe-details-button">
+                  View details
+                  <span>→</span>
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* ================= SEARCH ================= */}
-
       <section id="search-section" className="search-section">
-        <div className="search-box">
+        <form className="search-box" onSubmit={handleManualSearch}>
           <span>📍</span>
-
           <input
             type="text"
             placeholder="Enter a city or location..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
-
-          <button>Search</button>
-        </div>
+          <button type="submit">Search</button>
+        </form>
       </section>
 
       {/* ================= PREFERENCES ================= */}
-
       <section className="preferences-section" id="explore">
         <div className="section-heading">
           <span className="section-label">
@@ -316,94 +356,70 @@ function App() {
         </div>
 
         {/* INTENT CARDS */}
-
         <div className="intent-grid">
           <button
+            type="button"
             className={`intent-card ${
               selectedIntent === "study" ? "selected" : ""
             }`}
             onClick={() => setSelectedIntent("study")}
           >
             <span className="intent-icon">💻</span>
-
-            <span className="intent-title">
-              Study & Work
-            </span>
-
-            <span className="intent-description">
-              Quiet places, Wi-Fi & outlets
-            </span>
+            <span className="intent-title">Study & Work</span>
+            <span className="intent-description">Quiet places, Wi-Fi & outlets</span>
           </button>
 
           <button
+            type="button"
             className={`intent-card ${
               selectedIntent === "coffee" ? "selected" : ""
             }`}
             onClick={() => setSelectedIntent("coffee")}
           >
             <span className="intent-icon">☕</span>
-
-            <span className="intent-title">
-              Coffee & Chill
-            </span>
-
-            <span className="intent-description">
-              Relax and enjoy your coffee
-            </span>
+            <span className="intent-title">Coffee & Chill</span>
+            <span className="intent-description">Relax and enjoy your coffee</span>
           </button>
 
           <button
+            type="button"
             className={`intent-card ${
               selectedIntent === "meeting" ? "selected" : ""
             }`}
             onClick={() => setSelectedIntent("meeting")}
           >
             <span className="intent-icon">👥</span>
-
-            <span className="intent-title">
-              Meeting
-            </span>
-
-            <span className="intent-description">
-              Comfortable places to talk
-            </span>
+            <span className="intent-title">Meeting</span>
+            <span className="intent-description">Comfortable places to talk</span>
           </button>
 
           <button
+            type="button"
             className={`intent-card ${
               selectedIntent === "date" ? "selected" : ""
             }`}
             onClick={() => setSelectedIntent("date")}
           >
             <span className="intent-icon">❤️</span>
-
-            <span className="intent-title">
-              Date
-            </span>
-
-            <span className="intent-description">
-              Cozy places for two
-            </span>
+            <span className="intent-title">Date</span>
+            <span className="intent-description">Cozy places for two</span>
           </button>
         </div>
 
         {/* PREFERENCES BOX */}
-
         <div className="preferences-box">
           <div>
             <span className="section-label">
               YOUR PREFERENCES
             </span>
-
             <h3>What matters to you?</h3>
           </div>
 
           <div className="preference-options">
             <button
+              type="button"
               className={`preference-pill ${
-                preferences.includes("Wi-Fi")
-                  ? "selected"
-                  : ""
+                preferences.includes("Wi-Fi") ? "selected" : ""
               }`}
               onClick={() => togglePreference("Wi-Fi")}
             >
@@ -411,73 +427,57 @@ function App() {
             </button>
 
             <button
+              type="button"
               className={`preference-pill ${
-                preferences.includes("Power outlets")
-                  ? "selected"
-                  : ""
+                preferences.includes("Power outlets") ? "selected" : ""
               }`}
-              onClick={() =>
-                togglePreference("Power outlets")
-              }
+              onClick={() => togglePreference("Power outlets")}
             >
               🔌 Power outlets
             </button>
 
             <button
+              type="button"
               className={`preference-pill ${
-                preferences.includes("Open now")
-                  ? "selected"
-                  : ""
+                preferences.includes("Open now") ? "selected" : ""
               }`}
-              onClick={() =>
-                togglePreference("Open now")
-              }
+              onClick={() => togglePreference("Open now")}
             >
               🟢 Open now
             </button>
 
             <button
+              type="button"
               className={`preference-pill ${
-                preferences.includes("Outdoor")
-                  ? "selected"
-                  : ""
+                preferences.includes("Outdoor") ? "selected" : ""
               }`}
-              onClick={() =>
-                togglePreference("Outdoor")
-              }
+              onClick={() => togglePreference("Outdoor")}
             >
               🌿 Outdoor
             </button>
 
             <button
+              type="button"
               className={`preference-pill ${
-                preferences.includes("Highly rated")
-                  ? "selected"
-                  : ""
+                preferences.includes("Highly rated") ? "selected" : ""
               }`}
-              onClick={() =>
-                togglePreference("Highly rated")
-              }
+              onClick={() => togglePreference("Highly rated")}
             >
               ⭐ Highly rated
             </button>
 
             <button
+              type="button"
               className={`preference-pill ${
-                preferences.includes("Affordable")
-                  ? "selected"
-                  : ""
+                preferences.includes("Affordable") ? "selected" : ""
               }`}
-              onClick={() =>
-                togglePreference("Affordable")
-              }
+              onClick={() => togglePreference("Affordable")}
             >
               💰 Affordable
             </button>
           </div>
 
           {/* SELECTION MESSAGE */}
-
           {selectedIntent && (
             <p className="selection-message">
               ✨ Great! We'll look for a café for{" "}
@@ -497,7 +497,7 @@ function App() {
             </p>
           )}
 
-          <button className="discover-button">
+          <button className="discover-button" onClick={findNearbyCafes}>
             Find my cafés →
           </button>
         </div>
