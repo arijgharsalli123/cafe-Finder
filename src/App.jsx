@@ -29,8 +29,32 @@ function App() {
         : [...current, preference]
     );
   };
+  
+  // Filter cafés using only preferences supported by known data
+  const filteredCafes = cafes.filter((cafe) => {
+    return preferences.every((preference) => {
+      switch (preference) {
+        case "Wi-Fi":
+          return cafe.wifi === true;
 
-  // Get user's current location
+        case "Outdoor":
+          return cafe.outdoor === true;
+
+        // These preferences are not supported by our current data.
+        // Do not pretend a café matches them.
+        case "Power outlets":
+        case "Open now":
+        case "Highly rated":
+        case "Affordable":
+          return true;
+
+        default:
+          return true;
+      }
+    });
+  });
+  console.log("Filtered cafés:", filteredCafes);
+  // Get user's current location and discover nearby cafés
   const getUserLocation = () => {
     if (!navigator.geolocation) {
       setLocationStatus("unsupported");
@@ -42,11 +66,16 @@ function App() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
+
         console.log("User location:", latitude, longitude);
 
         const newLocation = { latitude, longitude };
+
         setLocation(newLocation);
         setLocationStatus("success");
+
+        // Automatically fetch cafés using the newly detected coordinates
+        findNearbyCafes(latitude, longitude);
       },
       (error) => {
         console.error("Geolocation error:", error);
@@ -59,41 +88,93 @@ function App() {
       }
     );
   };
-
   // Find nearby cafés using Overpass API
-  async function findNearbyCafes() {
-    if (!location) {
-      alert("Please get your location first using 'Find cafés near me'.");
-      getUserLocation();
-      return;
-    }
-
+  async function findNearbyCafes(latitude, longitude) {
     try {
-      const { latitude, longitude } = location;
       const query = `
         [out:json];
         node["amenity"="cafe"](around:3000,${latitude},${longitude});
         out;
       `;
+
       const response = await fetch(
         `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`
       );
+
+      if (!response.ok) {
+        throw new Error(`Overpass API error: ${response.status}`);
+      }
+
       const data = await response.json();
-      setCafes(data.elements || []);
-      console.log("Nearby cafés:", data.elements);
+
+      const normalizedCafes = (data.elements || []).map((cafe) => {
+        const tags = cafe.tags || {};
+
+        const addressParts = [
+          tags["addr:housenumber"],
+          tags["addr:street"],
+          tags["addr:city"],
+        ].filter(Boolean);
+
+        return {
+          id: cafe.id,
+          name: tags.name || null,
+          latitude: cafe.lat,
+          longitude: cafe.lon,
+          address: addressParts.length
+            ? addressParts.join(", ")
+            : null,
+          openingHours: tags.opening_hours || null,
+          outdoor:
+            tags.outdoor_seating === "yes"
+              ? true
+              : tags.outdoor_seating === "no"
+                ? false
+                : null,
+          wifi:
+            tags.internet_access === "wlan"
+              ? true
+              : tags.internet_access === "no"
+                ? false
+                : null,
+        };
+      });
+
+      setCafes(normalizedCafes);
+      console.log("Normalized cafés:", normalizedCafes);
     } catch (err) {
       console.error("Failed to fetch cafés:", err);
       alert("Could not fetch nearby cafés. Please try again.");
     }
   }
-
   // Handle manual search form submission
   const handleManualSearch = (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     alert(`Searching for location: ${searchQuery}`);
   };
+  
+  // Calculate the distance between two coordinates using the Haversine formula
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const toRadians = (degrees) => (degrees * Math.PI) / 180;
+    const earthRadiusKm = 6371;
 
+    const latitudeDifference = toRadians(lat2 - lat1);
+    const longitudeDifference = toRadians(lon2 - lon1);
+
+    const a =
+      Math.sin(latitudeDifference / 2) ** 2 +
+      Math.cos(toRadians(lat1)) *
+        Math.cos(toRadians(lat2)) *
+        Math.sin(longitudeDifference / 2) ** 2;
+
+    const safeA = Math.min(1, Math.max(0, a));
+
+    const centralAngle =
+      2 * Math.atan2(Math.sqrt(safeA), Math.sqrt(1 - safeA));
+
+    return earthRadiusKm * centralAngle;
+  };
   return (
     <main className="app">
       {/* ================= NAVBAR ================= */}
@@ -119,7 +200,7 @@ function App() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            ✨ Your perfect café is closer than you think
+            ☕ Your perfect coffe is closer than you think
           </motion.div>
 
           <motion.h1
@@ -127,7 +208,7 @@ function App() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7 }}
           >
-            Find the café
+            Find the coffee
             <br />
             <span>that fits you.</span>
           </motion.h1>
@@ -137,7 +218,7 @@ function App() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.15 }}
           >
-            Tell us what you're looking for and discover cafés
+            Tell us what you're looking for and discover coffee shops
             around you that match your mood, needs and preferences.
           </motion.p>
 
@@ -155,11 +236,7 @@ function App() {
             >
               {locationStatus === "loading"
                 ? "📍 Finding you..."
-                : "📍 Find cafés near me"}
-            </button>
-
-            <button className="secondary-button" onClick={findNearbyCafes}>
-               Test Nearby Cafés
+                : "📍 Find coffee near me"}
             </button>
 
             {/* SEARCH LOCATION BUTTON */}
@@ -283,42 +360,92 @@ function App() {
         </div>
       </section>
 
-      {/* ================= CAFÉ RESULTS SECTION (Fixed Position) ================= */}
+      {/* ================= CAFÉ RESULTS SECTION ================= */}
       {cafes.length > 0 && (
         <section className="cafe-results">
           <div className="results-header">
             <div>
-              <span className="results-eyebrow">YOUR CAFÉ DISCOVERY</span>
+              <span className="results-eyebrow">
+                YOUR CAFÉ DISCOVERY
+              </span>
+
               <h2>Cafés near you</h2>
+
               <p>
-                We found {cafes.length}{" "}
-                {cafes.length === 1 ? "place" : "places"} around you.
+                {filteredCafes.length > 0
+                  ? `Showing ${filteredCafes.length} of ${cafes.length} ${
+                      cafes.length === 1 ? "café" : "cafés"
+                    } nearby.`
+                  : "No cafés match your selected preferences."}
               </p>
             </div>
+
+            {preferences.length > 0 && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setPreferences([])}
+              >
+                Clear filters
+              </button>
+            )}
           </div>
 
-          <div className="cafes-list">
-            {cafes.map((cafe) => (
-              <article className="cafe-card" key={cafe.id}>
-                <div className="cafe-card-top">
-                  <span className="cafe-category">CAFÉ</span>
-                  <span className="cafe-icon">☕</span>
-                </div>
+          {filteredCafes.length > 0 ? (
+            <div className="cafes-list">
+              {filteredCafes.map((cafe) => (
+                <article className="cafe-card" key={cafe.id}>
+                  <div className="cafe-card-top">
+                    <span className="cafe-category">CAFÉ</span>
+                    <span className="cafe-icon">☕</span>
+                  </div>
 
-                <div className="cafe-card-content">
-                  <h3>{cafe.tags?.name || "Unnamed Café"}</h3>
-                  <p className="cafe-location">
-                    📍 {cafe.lat?.toFixed(4)}, {cafe.lon?.toFixed(4)}
-                  </p>
-                </div>
+                  <div className="cafe-card-content">
+                    <h3>{cafe.name || "Unnamed Café"}</h3>
 
-                <button className="cafe-details-button">
-                  View details
-                  <span>→</span>
-                </button>
-              </article>
-            ))}
-          </div>
+                    <p className="cafe-location">
+                      📍{" "}
+                      {location &&
+                      Number.isFinite(cafe.latitude) &&
+                      Number.isFinite(cafe.longitude)
+                        ? `${calculateDistance(
+                            location.latitude,
+                            location.longitude,
+                            cafe.latitude,
+                            cafe.longitude
+                          ).toFixed(1)} km away`
+                        : "Distance unavailable"}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="cafe-details-button"
+                  >
+                    View details
+                    <span>→</span>
+                  </button>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-results">
+              <span className="empty-results-icon">☕</span>
+              <h3>No matching cafés yet</h3>
+              <p>
+                Try removing one of your preferences to discover
+                more cafés nearby.
+              </p>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setPreferences([])}
+              >
+                Show all cafés
+              </button>
+            </div>
+          )}
         </section>
       )}
 
